@@ -217,6 +217,17 @@ textarea.tall{min-height:190px}
 
 
 
+
+/* ---------- 结果图预览 ---------- */
+.card-mask{position:fixed;inset:0;z-index:120;background:rgba(40,28,24,.86);backdrop-filter:blur(6px);
+  display:flex;align-items:center;justify-content:center;padding:16px}
+.card-box{width:100%;max-width:420px;max-height:92vh;display:flex;flex-direction:column;align-items:center;gap:12px}
+.card-box img{width:100%;height:auto;max-height:74vh;object-fit:contain;border-radius:12px;
+  box-shadow:0 24px 60px -20px rgba(0,0,0,.6);-webkit-user-select:auto;user-select:auto;-webkit-touch-callout:default}
+.card-tip{color:#F2E4DC;font-size:13px;text-align:center;line-height:1.7}
+.card-tip b{color:#fff}
+.card-close{width:120px;background:rgba(255,255,255,.14);color:#fff;border-color:rgba(255,255,255,.3)}
+
 /* ---------- 激活码弹窗 ---------- */
 .lic-mask{position:fixed;inset:0;z-index:99;background:rgba(58,42,37,.42);backdrop-filter:blur(4px);
   display:flex;align-items:center;justify-content:center;padding:22px}
@@ -5914,21 +5925,60 @@ function drawShareCard(){
 }
 
 function saveShareCard(){
-  const cv = drawShareCard();
+  var cv = drawShareCard();
   if (!cv){ toast('先生成结果'); return; }
+  var url;
+  try { url = cv.toDataURL('image/png'); }
+  catch(e){ toast('图片生成失败，可以长按截图'); return; }
+
+  var ua = navigator.userAgent || '';
+  var isMobile = /Android|iPhone|iPad|iPod|Mobile|MicroMessenger|HarmonyOS/i.test(ua);
+
+  /* 手机上浏览器基本不让直接下载，改成"长按保存" */
+  if (isMobile){
+    showCardPreview(url);
+    return;
+  }
+
   try {
-    const a = document.createElement('a');
+    var a = document.createElement('a');
     a.download = '关系诊断书-' + new Date().toISOString().slice(0,10) + '.png';
-    a.href = cv.toDataURL('image/png');
+    a.href = url;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    toast('已保存，去相册/下载里找');
+    toast('已保存到下载文件夹');
   } catch(e){
-    toast('保存失败，可以长按截图');
+    showCardPreview(url);
   }
 }
 
+function showCardPreview(url){
+  var old = document.getElementById('cardMask');
+  if (old) old.parentNode.removeChild(old);
+
+  var d = document.createElement('div');
+  d.id = 'cardMask';
+  d.className = 'card-mask';
+  d.innerHTML =
+    '<div class="card-box">' +
+      '<img id="cardImg" src="' + url + '" alt="结果图">' +
+      '<div class="card-tip">👆 <b>长按图片</b> → 选「保存图片」或「保存到相册」</div>' +
+      '<button class="btn ghost card-close" type="button" id="cardClose">关闭</button>' +
+    '</div>';
+
+  document.body.appendChild(d);
+  document.getElementById('cardClose').addEventListener('click', function(){
+    var m = document.getElementById('cardMask');
+    if (m) m.parentNode.removeChild(m);
+  });
+  d.addEventListener('click', function(e){
+    if (e.target === d){
+      var m = document.getElementById('cardMask');
+      if (m) m.parentNode.removeChild(m);
+    }
+  });
+}
 </script>
 
 <script>window.__AUTO_ANSWERS={"myGender":"f","hisGender":"m","myAge":"22_25","youWant":"better","timeState":"6to12","stage":"love","speed":"month","intimacy":"yes","pregnant":"no","dur":"1to3y","avoidLine":"none","defined":"clear","initiative":"both","distance":"same","trace":"none","otherPartner":"sure","expect":"wantOne","exclMode":"none","replySpeed":"hours","talk":"both","share":"report","hisLie":"unsure","hisAttach":"secure","private":"some","careWhenYouLeave":"change","care":"ask","fightStyle":"talk","repair":"both","apology":"sincere","gives":["ask","gift","small","care"],"effort":"both","changed":"small","costs":["time","emotion"],"gains":["love","company","growth"],"bodyAfter":"happy","bodyMeaning":"love","bodyOnly":"some","bodyPressure":"refuse","compromise":"sometimes","myAttach":"secure","selfTime":"some","friendsKnow":"some","hisLifeStage":"student","myLife":"student","selfWorth":"mostly","pattern":"sometimes","childhood":"warm","futureTalk":"plan","socialTrace":"yes","publicYou":"open","pressure":[],"moneyFlow":"gift","direction":"same","gapFeel":"no","resources":"same","friendView":"support","familyView":"neutral","alone":"scared","triedWhat":["talk"],"ifLeave":"us","whyStay":"love","goal":"better","patience":"3m","story":"我们在一起快三年了，整体挺好的。他是那种很稳的人，对我也好。就是最近一年，日子越来越像流程：上班、下班、吃饭、刷手机。我们很少吵架，但也很少聊到心里去。我有时候会想，是不是我要求太多了。","hardest":"我有点怀念刚在一起时的感觉，但不敢说。怕他说\"我们不是挺好的吗\"，然后我就觉得自己不知足。","dream":"他忽然很认真地看着我，说\"我们结婚吧\"，不是随口那种，是认真的。","oneLine":"像两个人在同一间屋子里，各看各的手机。","selfNote":"你当时已经做得很好了。别把自己弄丢。"};</script>

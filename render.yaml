@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: relationship-reading
+    runtime: node
+    plan: free
+    buildCommand: "npm install --omit=dev"
+    startCommand: "node server.js"
+    envVars:
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: ADMIN_TOKEN
+        sync: false
+      - key: AI_MODEL
+        value: deepseek-chat
+      - key: AI_BASE_URL
+        value: https://api.deepseek.com/chat/completions

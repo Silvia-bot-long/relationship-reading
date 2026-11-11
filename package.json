@@ -1,0 +1,13 @@
+{
+  "name": "relationship-reading",
+  "version": "1.0.0",
+  "private": true,
+  "description": "关系诊断书",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

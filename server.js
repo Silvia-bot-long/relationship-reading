@@ -24,7 +24,7 @@ const LIC = require('./license.js');
 
 const PORT = process.env.PORT || 8787;
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
-const USE_FILE = path.join(DATA_DIR, 'usage.json');
+const USE_FILE = path.join(DATA_DIR, 'codes.json');
 
 /* ---------- 读 .env ---------- */
 function loadEnv(){
@@ -49,6 +49,42 @@ const ADMIN_TOKEN = process.env.ADMIN_TOKEN || '';
 const memoryUsage = new Map();
 let fileOk = true;
 
+/* 登记表：code -> {q:总次数, u:已用, t:生成时间} */
+function loadStore(){
+  if (!fileOk) return memoryUsage;
+  try {
+    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+    if (!fs.existsSync(USE_FILE)) fs.writeFileSync(USE_FILE, '{}', 'utf8');
+    const obj = JSON.parse(fs.readFileSync(USE_FILE, 'utf8'));
+    Object.keys(obj).forEach(k => memoryUsage.set(k, obj[k]));
+  } catch (e){ fileOk = false; }
+  return memoryUsage;
+}
+function saveStore(){
+  if (!fileOk) return;
+  try {
+    const obj = {};
+    memoryUsage.forEach((v, k) => { obj[k] = v; });
+    fs.writeFileSync(USE_FILE, JSON.stringify(obj), 'utf8');
+  } catch (e){ fileOk = false; }
+}
+function registerCode(code, quota){
+  const m = loadStore();
+  m.set(code, { q: quota, u: 0, t: Date.now() });
+  saveStore();
+}
+function usageOf(code){
+  const m = loadStore();
+  const r = m.get(code);
+  return r ? r.u : 0;
+}
+function recordUse(code, quota){
+  const m = loadStore();
+  const r = m.get(code) || { q: quota, u: 0, t: Date.now() };
+  r.u = (r.u || 0) + 1;
+  m.set(code, r);
+  saveStore();
+}
 function loadUsage(){
   if (!fileOk) return memoryUsage;
   try {
@@ -68,13 +104,10 @@ function saveUsage(){
   } catch (e){ fileOk = false; }
 }
 function usedOf(code){
-  const m = loadUsage();
-  return m.get(code) || 0;
+  return usageOf(code);
 }
-function addUse(code){
-  const m = loadUsage();
-  m.set(code, (m.get(code) || 0) + 1);
-  saveUsage();
+function addUse(code, quota){
+  recordUse(code, quota || 1);
 }
 
 /* ---------- 工具 ---------- */
@@ -128,7 +161,11 @@ const server = http.createServer((req, res) => {
     const n = Math.min(200, Math.max(1, parseInt(u.query.n || '1', 10)));
     const quota = Math.max(1, parseInt(u.query.quota || '1', 10));
     const codes = [];
-    for (let i = 0; i < n; i++) codes.push(LIC.makeCode(quota));
+    for (let i = 0; i < n; i++){
+      const code = LIC.makeCode(quota);
+      codes.push(code);
+      registerCode(code, quota);
+    }
     if (u.query.fmt === 'text'){
       res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
       res.end(codes.join('\n'));
@@ -141,45 +178,104 @@ const server = http.createServer((req, res) => {
   if (u.pathname === '/admin'){
     if (!ADMIN_TOKEN) return json(res, 403, { error: '服务器没设置 ADMIN_TOKEN' });
     if (u.query.token !== ADMIN_TOKEN) return json(res, 403, { error: '密码不对' });
+
+    const store = loadStore();
+    const rows = [];
+    store.forEach((v, k) => rows.push({ code: k, q: v.q, u: v.u, t: v.t }));
+    rows.sort((a, b) => (b.t || 0) - (a.t || 0));
+
+    const total = rows.length;
+    const usedUp = rows.filter(r => (r.u || 0) >= (r.q || 1)).length;
+    const remain = total - usedUp;
+
+    const trs = rows.slice(0, 300).map(r => {
+      const left = (r.q || 1) - (r.u || 0);
+      const state = left <= 0 ? '<span class="bad">已用完</span>' : '<span class="ok">可用</span>';
+      const when = r.t ? new Date(r.t).toLocaleString('zh-CN', { hour12: false }) : '-';
+      return '<tr><td class="mono">' + r.code + '</td><td>' + r.q + ' 次</td><td>' + (r.u || 0) + '</td><td>' + Math.max(0, left) + '</td><td>' + state + '</td><td class="dim">' + when + '</td></tr>';
+    }).join('');
+
     const html = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>生成激活码</title>
+<title>激活码管理</title>
 <style>
-body{font-family:system-ui,-apple-system,"PingFang SC","Microsoft YaHei";background:#FBF6F1;color:#3A2E2A;padding:26px 18px;max-width:640px;margin:0 auto}
-h1{font-size:20px;margin:0 0 6px}
-h2{font-size:15px;margin:28px 0 10px;padding-top:18px;border-top:1px solid #EADCD1;color:#7A6155}
-.sub{color:#9A857A;font-size:13px;margin-bottom:22px;line-height:1.8}
-form{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px;font-size:14px}
-input{padding:10px 12px;border:1px solid #E6D8CD;border-radius:10px;font-size:15px;background:#fff}
-input[type=number]{width:80px}
-button{padding:11px 20px;border:0;border-radius:12px;background:#B76E74;color:#fff;font-size:15px;cursor:pointer}
-button:active{transform:translateY(1px)}
-.tip{color:#A8918A;font-size:12px;line-height:1.9;margin-top:18px}
+body{font-family:system-ui,-apple-system,"PingFang SC","Microsoft YaHei";background:#FBF6F1;color:#3A2E2A;padding:24px 16px;max-width:860px;margin:0 auto}
+h1{font-size:20px;margin:0 0 4px}
+h2{font-size:15px;margin:26px 0 10px;padding-top:16px;border-top:1px solid #EADCD1;color:#7A6155}
+.sub{color:#9A857A;font-size:13px;margin-bottom:18px;line-height:1.8}
+.cards{display:flex;gap:10px;margin:16px 0 6px}
+.card{flex:1;background:#fff;border-radius:14px;padding:14px 12px;text-align:center;border:1px solid #EFE1D6}
+.card b{display:block;font-size:24px;color:#8C5A52;font-family:Georgia,serif}
+.card span{font-size:12px;color:#A8918A}
+form{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px;font-size:14px}
+input{padding:9px 11px;border:1px solid #E6D8CD;border-radius:10px;font-size:15px;background:#fff}
+input[type=number]{width:74px}
+button{padding:10px 18px;border:0;border-radius:11px;background:#B76E74;color:#fff;font-size:14px;cursor:pointer}
+a.btn{display:inline-block;padding:10px 16px;border-radius:11px;background:#fff;border:1px solid #E6D8CD;color:#8C5A52;text-decoration:none;font-size:13px}
+table{width:100%;border-collapse:collapse;background:#fff;border-radius:14px;overflow:hidden;font-size:13px;border:1px solid #EFE1D6}
+th,td{padding:10px 6px;text-align:left;border-bottom:1px solid #F3E9E1;white-space:nowrap}
+th{background:#FCF6F1;font-weight:600;color:#7A6155;font-size:12px}
+.mono{font-family:ui-monospace,Menlo,Consolas,monospace;letter-spacing:.04em;font-size:12.5px}
+.dim{color:#AE9C93;font-size:11.5px}
+.ok{color:#3F7D5A;background:#EAF4EE;padding:3px 9px;border-radius:99px;font-size:11.5px;white-space:nowrap;display:inline-block}
+.bad{color:#A65B52;background:#FBEDEA;padding:3px 9px;border-radius:99px;font-size:11.5px;white-space:nowrap;display:inline-block}
+.tip{color:#A8918A;font-size:12px;line-height:1.9;margin-top:16px}
+.warn{background:#FFF6E9;border:1px solid #F0DDBE;color:#8A6A3A;font-size:12px;line-height:1.8;padding:10px 12px;border-radius:10px;margin-top:14px}
 </style>
-<h1>生成激活码</h1>
-<div class="sub">填数字，点生成，下一页就是你的码，全选复制即可。</div>
+<h1>激活码管理</h1>
+<div class="sub">这里的数字是实时的：客户用完一个码，刷新页面就能看到。</div>
+
+<div class="cards">
+  <div class="card"><b>${total}</b><span>已生成</span></div>
+  <div class="card"><b>${remain}</b><span>还没用完</span></div>
+  <div class="card"><b>${usedUp}</b><span>已用完</span></div>
+</div>
 
 <form action="/api/admin/gen" method="GET">
   <input type="hidden" name="token" value="${ADMIN_TOKEN}">
-  <input type="hidden" name="fmt" value="text">
   生成 <input type="number" name="n" value="10" min="1" max="200"> 个，
   每个可用 <input type="number" name="quota" value="1" min="1" max="255"> 次
   <button type="submit">生成</button>
 </form>
 
-<h2>查一查某个码用过没</h2>
+<div style="margin:12px 0 4px;display:flex;gap:10px;flex-wrap:wrap">
+  <a class="btn" href="/admin?token=${ADMIN_TOKEN}">刷新表格</a>
+  <a class="btn" href="/admin/csv?token=${ADMIN_TOKEN}">导出 CSV（Excel 能打开）</a>
+</div>
+
+<h2>全部激活码</h2>
+<table>
+<tr><th>激活码</th><th>总次数</th><th>已用</th><th>剩余</th><th>状态</th><th>生成时间</th></tr>
+${trs || '<tr><td colspan="6" class="dim" style="padding:20px">还没有生成过。上面填数字点"生成"。</td></tr>'}
+</table>
+
+<h2>查一查某个码</h2>
 <form action="/api/license/check" method="GET">
-  激活码 <input type="text" name="code" placeholder="XXXXX-XXXXX" style="width:190px;text-transform:uppercase">
+  <input type="text" name="code" placeholder="XXXXX-XXXXX" style="width:180px;text-transform:uppercase">
   <button type="submit">查询</button>
 </form>
 
-<div class="tip">
-一码一次：生成 10 个就是 10 个客户。<br>
-生成后请立刻复制保存，页面关掉就查不到列表了。<br>
-次数填 3 就是"一个码能测三次"。<br>
-这个页面别发给客户。
-</div>`;
+<div class="warn">⚠️ 免费版服务器重启后，这张表可能被清空（码本身依然有效，客户照样能用），所以重要记录请点上面「导出 CSV」存一份。</div>
+<div class="tip">这个页面别发给客户。</div>`;
+
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(html);
+    return;
+  }
+
+  if (u.pathname === '/admin/csv'){
+    if (u.query.token !== ADMIN_TOKEN) return json(res, 403, { error: '密码不对' });
+    const store = loadStore();
+    const lines = ['激活码,总次数,已用,剩余,状态,生成时间'];
+    store.forEach((v, k) => {
+      const left = (v.q || 1) - (v.u || 0);
+      const when = v.t ? new Date(v.t).toLocaleString('zh-CN', { hour12: false }) : '';
+      lines.push([k, v.q, v.u || 0, Math.max(0, left), left <= 0 ? '已用完' : '可用', when].join(','));
+    });
+    res.writeHead(200, {
+      'Content-Type': 'text/csv; charset=utf-8',
+      'Content-Disposition': 'attachment; filename="codes.csv"'
+    });
+    res.end('\ufeff' + lines.join('\r\n'));
     return;
   }
 
@@ -195,11 +291,13 @@ button:active{transform:translateY(1px)}
 
       const needLicense = !!ADMIN_TOKEN;
       const code = String(req.headers['x-license'] || '').trim().toUpperCase();
+      let licQuota = 1;
 
       if (needLicense){
         if (!code) return json(res, 402, { error: '需要激活码', code: 'NO_LICENSE' });
         const r = LIC.checkCode(code);
         if (!r.ok) return json(res, 402, { error: r.reason, code: 'BAD_LICENSE' });
+        licQuota = r.quota;
         if (usedOf(code) >= r.quota) return json(res, 402, { error: '这个码的次数已经用完了', code: 'QUOTA' });
       }
 
@@ -227,7 +325,7 @@ button:active{transform:translateY(1px)}
         }
       };
 
-      if (needLicense) addUse(code);
+      if (needLicense) addUse(code, licQuota);
 
       const upstream = https.request(opts, up => {
         res.writeHead(up.statusCode, {

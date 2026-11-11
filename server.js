@@ -122,13 +122,18 @@ const server = http.createServer((req, res) => {
   }
 
   /* 生成码 */
-  if (u.pathname === '/api/admin/gen' && req.method === 'POST'){
+  if (u.pathname === '/api/admin/gen'){
     if (!ADMIN_TOKEN) return json(res, 403, { error: '服务器没设置 ADMIN_TOKEN' });
     if (u.query.token !== ADMIN_TOKEN) return json(res, 403, { error: '密码不对' });
     const n = Math.min(200, Math.max(1, parseInt(u.query.n || '1', 10)));
     const quota = Math.max(1, parseInt(u.query.quota || '1', 10));
     const codes = [];
     for (let i = 0; i < n; i++) codes.push(LIC.makeCode(quota));
+    if (u.query.fmt === 'text'){
+      res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end(codes.join('\n'));
+      return;
+    }
     return json(res, 200, { ok: true, codes, count: codes.length, quota });
   }
 
@@ -139,47 +144,40 @@ const server = http.createServer((req, res) => {
     const html = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>生成激活码</title>
 <style>
-h2{font-size:16px;margin:30px 0 10px;padding-top:20px;border-top:1px solid #EADCD1}
-body{font-family:system-ui,-apple-system,"PingFang SC","Microsoft YaHei";background:#FBF6F1;color:#3A2E2A;padding:26px 18px;max-width:620px;margin:0 auto}
+body{font-family:system-ui,-apple-system,"PingFang SC","Microsoft YaHei";background:#FBF6F1;color:#3A2E2A;padding:26px 18px;max-width:640px;margin:0 auto}
 h1{font-size:20px;margin:0 0 6px}
-.sub{color:#9A857A;font-size:13px;margin-bottom:22px}
-.row{display:flex;gap:12px;align-items:center;margin-bottom:14px;font-size:14px;flex-wrap:wrap}
-input{padding:10px 12px;border:1px solid #E6D8CD;border-radius:10px;width:90px;font-size:15px}
-button{padding:12px 20px;border:0;border-radius:12px;background:#B76E74;color:#fff;font-size:15px;cursor:pointer}
+h2{font-size:15px;margin:28px 0 10px;padding-top:18px;border-top:1px solid #EADCD1;color:#7A6155}
+.sub{color:#9A857A;font-size:13px;margin-bottom:22px;line-height:1.8}
+form{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px;font-size:14px}
+input{padding:10px 12px;border:1px solid #E6D8CD;border-radius:10px;font-size:15px;background:#fff}
+input[type=number]{width:80px}
+button{padding:11px 20px;border:0;border-radius:12px;background:#B76E74;color:#fff;font-size:15px;cursor:pointer}
 button:active{transform:translateY(1px)}
-pre{background:#fff;padding:16px;border-radius:12px;font-size:15px;line-height:2;white-space:pre-wrap;letter-spacing:.06em;
-border:1px dashed #E6D8CD;min-height:60px}
-.tip{color:#A8918A;font-size:12px;line-height:1.9;margin-top:14px}
+.tip{color:#A8918A;font-size:12px;line-height:1.9;margin-top:18px}
 </style>
 <h1>生成激活码</h1>
-<div class="sub">生成后复制发给客户。一个码只能用你设定的次数。</div>
-<div class="row">生成数量 <input id="n" value="10"> 个，每个可用 <input id="q" value="1"> 次</div>
-<div class="row"><button onclick="gen()">生成</button></div>
-<pre id="out">点“生成”</pre>
+<div class="sub">填数字，点生成，下一页就是你的码，全选复制即可。</div>
 
-<h2>查一查这个码用过没</h2>
-<div class="row"><input id="chk" placeholder="粘贴激活码" style="width:200px;text-transform:uppercase"> <button onclick="chk()">查询</button></div>
-<pre id="chkOut">粘贴一个码，点查询</pre>
-<div class="tip">客户打开网站 → 输入码 → 答题 → 生成。用完次数就作废。<br>这个页面别发给客户。</div>
-<script>
-async function gen(){
-  const n=document.getElementById('n').value, q=document.getElementById('q').value;
-  document.getElementById('out').textContent='生成中…';
-  const r=await fetch('/api/admin/gen?n='+n+'&quota='+q+'&token='+encodeURIComponent('${ADMIN_TOKEN}'),{method:'POST'});
-  const j=await r.json();
-  document.getElementById('out').textContent = j.codes ? j.codes.join('\\n') : (j.error||'失败');
-}
-async function chk(){
-  const v=document.getElementById('chk').value.trim().toUpperCase();
-  if(!v){ document.getElementById('chkOut').textContent='先粘贴一个码'; return; }
-  document.getElementById('chkOut').textContent='查询中…';
-  const r=await fetch('/api/license/check?code='+encodeURIComponent(v));
-  const j=await r.json();
-  document.getElementById('chkOut').textContent = j.ok
-    ? '有效\n总共可用：'+j.quota+' 次\n已用：'+j.used+' 次\n还剩：'+j.remaining+' 次'
-    : '用不了：'+(j.reason||'无效');
-}
-</script>`;
+<form action="/api/admin/gen" method="GET">
+  <input type="hidden" name="token" value="${ADMIN_TOKEN}">
+  <input type="hidden" name="fmt" value="text">
+  生成 <input type="number" name="n" value="10" min="1" max="200"> 个，
+  每个可用 <input type="number" name="quota" value="1" min="1" max="255"> 次
+  <button type="submit">生成</button>
+</form>
+
+<h2>查一查某个码用过没</h2>
+<form action="/api/license/check" method="GET">
+  激活码 <input type="text" name="code" placeholder="XXXXX-XXXXX" style="width:190px;text-transform:uppercase">
+  <button type="submit">查询</button>
+</form>
+
+<div class="tip">
+一码一次：生成 10 个就是 10 个客户。<br>
+生成后请立刻复制保存，页面关掉就查不到列表了。<br>
+次数填 3 就是"一个码能测三次"。<br>
+这个页面别发给客户。
+</div>`;
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(html);
     return;

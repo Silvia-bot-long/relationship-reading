@@ -139,6 +139,7 @@ const server = http.createServer((req, res) => {
     const html = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>生成激活码</title>
 <style>
+h2{font-size:16px;margin:30px 0 10px;padding-top:20px;border-top:1px solid #EADCD1}
 body{font-family:system-ui,-apple-system,"PingFang SC","Microsoft YaHei";background:#FBF6F1;color:#3A2E2A;padding:26px 18px;max-width:620px;margin:0 auto}
 h1{font-size:20px;margin:0 0 6px}
 .sub{color:#9A857A;font-size:13px;margin-bottom:22px}
@@ -155,6 +156,10 @@ border:1px dashed #E6D8CD;min-height:60px}
 <div class="row">生成数量 <input id="n" value="10"> 个，每个可用 <input id="q" value="1"> 次</div>
 <div class="row"><button onclick="gen()">生成</button></div>
 <pre id="out">点“生成”</pre>
+
+<h2>查一查这个码用过没</h2>
+<div class="row"><input id="chk" placeholder="粘贴激活码" style="width:200px;text-transform:uppercase"> <button onclick="chk()">查询</button></div>
+<pre id="chkOut">粘贴一个码，点查询</pre>
 <div class="tip">客户打开网站 → 输入码 → 答题 → 生成。用完次数就作废。<br>这个页面别发给客户。</div>
 <script>
 async function gen(){
@@ -163,6 +168,16 @@ async function gen(){
   const r=await fetch('/api/admin/gen?n='+n+'&quota='+q+'&token='+encodeURIComponent('${ADMIN_TOKEN}'),{method:'POST'});
   const j=await r.json();
   document.getElementById('out').textContent = j.codes ? j.codes.join('\\n') : (j.error||'失败');
+}
+async function chk(){
+  const v=document.getElementById('chk').value.trim().toUpperCase();
+  if(!v){ document.getElementById('chkOut').textContent='先粘贴一个码'; return; }
+  document.getElementById('chkOut').textContent='查询中…';
+  const r=await fetch('/api/license/check?code='+encodeURIComponent(v));
+  const j=await r.json();
+  document.getElementById('chkOut').textContent = j.ok
+    ? '有效\n总共可用：'+j.quota+' 次\n已用：'+j.used+' 次\n还剩：'+j.remaining+' 次'
+    : '用不了：'+(j.reason||'无效');
 }
 </script>`;
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
